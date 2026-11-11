@@ -223,7 +223,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 4 pestañas restauradas completamente
-tab_mon, tab_man, tab_ana, tab_cfg = st.tabs(["Monitor en vivo", "Evaluación manual", "Analizar mi señal", "Configuración"])
+tab_mon, tab_man, tab_ana, tab_cfg = st.tabs(["Monitor en vivo", "Analizar mi señal", "Configuración"])
 
 # 1. Pestaña Monitor en vivo
 with tab_mon:
@@ -252,6 +252,38 @@ with tab_mon:
                 
                 hist_df = sistema.tabla()
                 st.success(f"Monitoreo completado para el paciente {paciente_sel}. Ventanas analizadas: {len(hist_df)}")
+
+                if not hist_df.empty:
+                    ultimo_estado = hist_df.iloc[-1]
+                    nivel_actual = ultimo_estado['nivel']
+                    es_alerta_actual = nivel_actual in ('ALERTA', 'CRÍTICO')
+                    color_actual = "#d32f2f" if es_alerta_actual else "#2e7d32"
+                    texto_actual = (
+                        "🚨 ALERTA DE RIESGO RESPIRATORIO"
+                        if es_alerta_actual
+                        else "🟢 ESTADO NORMAL"
+                    )
+                    prob_actual = ultimo_estado['probabilidad']
+                    prob_texto = (
+                        f"{prob_actual:.3f}"
+                        if pd.notna(prob_actual)
+                        else "No disponible"
+                    )
+
+                    st.markdown(f"""
+                        <div style='border-radius:10px; padding:16px 20px;
+                                    background:{color_actual}; color:white; margin:20px 0;'>
+                            <div style='font-size:22px; font-weight:bold;'>
+                                {texto_actual}
+                            </div>
+                            <div style='margin-top:6px;'>
+                                Estado: <b>{nivel_actual}</b> ·
+                                Tiempo: <b>{ultimo_estado['t_s']} s</b> ·
+                                RR: <b>{ultimo_estado['rr_rpm']:.1f} rpm</b> ·
+                                Probabilidad: <b>{prob_texto}</b>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
                 
                 # Gráfica de 3 paneles
                 img_bytes = figura_png(hist_df, UMBRAL_FINAL, f'Paciente {paciente_sel} — {MEJOR_MODELO}')
@@ -261,8 +293,28 @@ with tab_mon:
                 st.markdown("### 📋 Registro de Alertas del Monitoreo")
                 if sistema.eventos:
                     for ev in sistema.eventos:
-                        icono = "🟠" if ev['tipo'] == 'ALERTA' else "🟢"
-                        st.markdown(f"{icono} **{ev['tipo']}** en $t = {ev['t_s']}s$ — RR: `{ev['rr']:.1f} rpm` | Prob: `{ev['prob']:.3f}`")
+                        es_alerta = ev['tipo'] == 'ALERTA'
+                        color_tarjeta = "#d32f2f" if es_alerta else "#2e7d32"
+                        estado_texto = (
+                            "🚨 ALERTA DE RIESGO RESPIRATORIO"
+                            if es_alerta
+                            else "🟢 FIN DE ALERTA"
+                        )
+
+                        st.markdown(f"""
+                            <div style='border-radius:10px; padding:16px 20px;
+                                        background:{color_tarjeta}; color:white; margin:10px 0;'>
+                                <div style='font-size:22px; font-weight:bold;'>
+                                    {estado_texto}
+                                </div>
+                                <div style='margin-top:6px;'>
+                                    Evento: <b>{ev['tipo']}</b> ·
+                                    Tiempo: <b>{ev['t_s']} s</b> ·
+                                    RR: <b>{ev['rr']:.1f} rpm</b> ·
+                                    Probabilidad: <b>{ev['prob']:.3f}</b>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
                 else:
                     st.info("No se registraron cambios de estado crítico o alertas en este paciente durante la simulación.")
                 
@@ -272,33 +324,6 @@ with tab_mon:
             except Exception as e:
                 st.error(f"Error al procesar los datos del paciente: {e}")
 
-# 2. Pestaña Evaluación manual (Reparada)
-with tab_man:
-    st.subheader("Simulador de Parámetros Clínicos Individuales")
-    c_m1, c_m2 = st.columns(2)
-    with c_m1:
-        rr_val = st.slider("Frecuencia Respiratoria (RR - rpm)", 4.0, 40.0, 16.0, 0.5)
-        hr_val = st.slider("Frecuencia Cardíaca (HR - lpm)", 30.0, 180.0, 80.0, 1.0)
-        sdnn_val = st.slider("SDNN (ms)", 0.0, 200.0, 30.0, 1.0)
-    with c_m2:
-        rmssd_val = st.slider("RMSSD (ms)", 0.0, 200.0, 25.0, 1.0)
-        usar_spo2_man = st.checkbox("Incluir SpO2 (Evaluación manual)")
-        spo2_val = st.slider("SpO2 (%)", 80.0, 100.0, 97.0, 0.5, disabled=not usar_spo2_man)
-
-    m_dict = agregar_features({'rr_rpm': rr_val, 'hr_bpm': hr_val, 'hrv_sdnn_ms': sdnn_val, 'hrv_rmssd_ms': rmssd_val})
-    fila_pred = pd.DataFrame([{f: m_dict[f] for f in FEATURES}])
-    prob_val = float(modelo.predict_proba(fila_pred)[0, 1])
-    
-    es_positivo = prob_val >= UMBRAL_FINAL or (usar_spo2_man and spo2_val < SPO2_MIN)
-    color_tarjeta = "#d32f2f" if es_positivo else "#2e7d32"
-    estado_texto = "🚨 ALERTA DE RIESGO RESPIRATORIO" if es_positivo else "🟢 ESTADO NORMAL"
-
-    st.markdown(f"""
-        <div style='border-radius:10px; padding:16px 20px; background:{color_tarjeta}; color:white; margin-top:20px;'>
-            <div style='font-size:22px; font-weight:bold;'>{estado_texto}</div>
-            <div style='margin-top:6px;'>Probabilidad de riesgo ({MEJOR_MODELO}): <b>{prob_val:.3f}</b> · Umbral Youden: {UMBRAL_FINAL:.3f}</div>
-        </div>
-    """, unsafe_allow_html=True)
 
 # 3. Pestaña Analizar mi señal (Restaurada)
 with tab_ana:
