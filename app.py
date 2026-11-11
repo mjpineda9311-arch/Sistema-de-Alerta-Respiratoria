@@ -223,7 +223,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 4 pestañas restauradas completamente
-tab_mon, tab_man, tab_ana, tab_cfg = st.tabs(["Monitor en vivo", "Analizar mi señal", "Configuración"])
+tab_mon, tab_ana, tab_cfg = st.tabs(["Monitor en vivo", "Analizar mi señal", "Configuración"])
 
 # 1. Pestaña Monitor en vivo
 with tab_mon:
